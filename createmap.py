@@ -1,5 +1,8 @@
 from osgeo import gdal, ogr, osr
 import os
+import json
+from pyproj import CRS, Transformer
+from shapely.geometry import shape
 """
 平面直角座標系に存在するDXFをGeoJSONに変換して、
 XYZ tilesの地理院地図（標準地図）上にプロットする
@@ -8,11 +11,11 @@ def main(dammy, input, zahyo):
     # DXFの座標系を認識させる
     dxf_epsg = heimenchokkaku_no(zahyo)
     # DXFからGeoJSONに変換
-    dxf2geojson(input, str(dxf_epsg), 'output.geojson')
+    dxf2geojson(input, dxf_epsg, 'output.geojson')
     # 作成したGeoJSONの四隅の座標を抽出する（地理院タイル取得用）
-
+    map_minx, map_maxx, map_miny, map_maxy = getmaprange('output,geojson', dxf_epsg)
     # 地理院タイルを取得してGeoTiffを作成する
-
+    get_gsimap(map_minx, map_maxx, map_miny, map_maxy)
     # 地理院地図とGeoJSONを重ねた画像を作成する
 
     pass
@@ -51,16 +54,32 @@ def dxf2geojson(input_dxf:str, zahyo:int, output_file:str):
     # フィーチャをコピー
     in_layer = input_data.GetLayer()
     for feature in in_layer:
-    output_layer.CreateFeature(feature)
+        output_layer.CreateFeature(feature)
     pass
 
 
-def zahyo_conv(input, zahyo):
-    # 平面直角座標系からEPSG:4326に変換する（地理院マップ用）
+def getmaprange(input, epsg):
+    # GeoJSONを平面直角座標系から緯度経度にEPSG:4326に変換して四隅の座標を求める（地理院マップ用）
+    with open('input', 'r') as f:
+        data = json.load(f)
+    source_crs = CRS("EPSG:6677")
+    target_crs = CRS("EPSG:4326")
+    transformer = Transformer.from_crs(source_crs, target_crs)
+    for feature in data['features']:
+        geometry = shape(feature['geometry'])
+        transformed_coords = [transformer.transform(*coord) for coord in geometry.coords]
+    minx, miny = min(transformed_coords, key=lambda coord: (coord[0], coord[1]))
+    maxx, maxy = max(transformed_coords, key=lambda coord: (coord[0], coord[1]))
+    # ジオメトリの四隅の座標が分かったので、適当に加算する。
+    # 現時点では1秒（40m）分の幅を加える。1秒は0.0167足せばよい
+    map_minx = minx + 0.0167
+    map_miny = miny + 0.0167
+    map_maxx = maxx + 0.0167
+    map_maxy = maxy + 0.0167
+    return map_minx, map_maxx, map_miny, map_maxy
 
-    pass
+def get_gsimap(lon1, lon2, lat1, lat2):
 
-def get_gsimap(lat1, lat2, lon1, lon2):
     pass
 
 def merge(img_file):
